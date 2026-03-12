@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>MatveyCraft Ultimate</title>
+  <style>
+    :root {
+      --bg1: #87ceeb;
+      --bg2: #d8f6ff;
+      --panel: rgba(255,255,255,.88);
+      --ink: #1f2937;
+      --accent: #ffb703;
+      --good: #22c55e;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: linear-gradient(var(--bg1), var(--bg2)); color: var(--ink);
+    }
+    body.night {
+      --bg1: #14213d;
+      --bg2: #243b67;
+    }
+    #app { display: flex; flex-direction: column; height: 100%; }
+    .topbar {
+      display: grid; grid-template-columns: 1fr auto auto; gap: 8px; padding: 10px;
+      background: linear-gradient(to bottom, rgba(255,255,255,.95), rgba(255,255,255,.78)); backdrop-filter: blur(6px);
+      border-bottom: 2px solid rgba(255,255,255,.5);
+    }
+    .card {
+      background: var(--panel); border-radius: 18px; padding: 10px 12px; box-shadow: 0 4px 14px rgba(0,0,0,.12);
+    }
+    .title { font-weight: 900; font-size: 1.1rem; }
+    .subtitle { font-size: .76rem; opacity: .78; }
+    .stats { display: flex; gap: 8px; align-items: center; font-weight: 800; }
+    .layout { flex: 1; display: grid; grid-template-rows: auto 1fr auto auto; min-height: 0; }
+    #message {
+      margin: 8px 10px 6px; padding: 10px 12px; border-radius: 18px; background: rgba(255,255,255,.9); font-weight: 700;
+      box-shadow: 0 3px 10px rgba(0,0,0,.08);
+      min-height: 48px;
+    }
+    #gameWrap { display: flex; justify-content: center; align-items: center; min-height: 0; padding: 4px 8px; }
+    canvas {
+      width: min(96vw, 620px); height: min(58vh, 620px); image-rendering: pixelated; border-radius: 24px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.20); border: 4px solid rgba(255,255,255,.5);
+      background: #8fd3ff;
+      touch-action: none;
+    }
+    .toolbar, .controls {
+      display: flex; gap: 8px; padding: 8px 10px 10px; overflow-x: auto; scrollbar-width: none;
+    }
+    .toolbar::-webkit-scrollbar, .controls::-webkit-scrollbar { display: none; }
+    button {
+      border: 0; border-radius: 18px; padding: 12px 14px; font-weight: 800; background: rgba(255,255,255,.92);
+      box-shadow: 0 4px 12px rgba(0,0,0,.12); color: var(--ink); min-width: 74px; cursor: pointer;
+    }
+    button.big { min-width: 92px; font-size: 1rem; }
+    button.active { background: #ffe08a; transform: translateY(-1px) scale(1.02); }
+    button:active { transform: scale(.97); }
+    .controls { justify-content: center; }
+    .footerHint { text-align: center; font-size: .74rem; opacity: .8; padding-bottom: 8px; }
+    @media (min-width: 760px) {
+      .layout { grid-template-columns: 1fr; }
+      canvas { height: min(62vh, 680px); }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <div class="card">
+      <div class="title">МатвейКрафт Ultimate</div>
+      <div class="subtitle">Большой мир, стройка, квесты, животные и секреты</div>
+    </div>
+    <div class="card stats" id="stats"></div>
+    <div class="card stats" id="timeStat"></div>
+  </div>
+  <div class="layout">
+    <div id="message">Добро пожаловать, Матвей! Сегодня строим, исследуем и ищем сокровища ✨</div>
+    <div id="gameWrap"><canvas id="game" width="640" height="640"></canvas></div>
+    <div class="toolbar" id="toolbar"></div>
+    <div class="controls">
+      <button class="big" data-action="up">⬆️</button>
+      <button class="big" data-action="left">⬅️</button>
+      <button class="big" data-action="down">⬇️</button>
+      <button class="big" data-action="right">➡️</button>
+      <button class="big" data-action="mine">⛏️</button>
+      <button class="big" data-action="build">🧱</button>
+      <button class="big" data-action="interact">✨</button>
+    </div>
+    <div class="footerHint">Тап по миру: строить. Кнопки снизу: ходить, ломать, строить и взаимодействовать.</div>
+  </div>
+</div>
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const msg = document.getElementById('message');
+  const stats = document.getElementById('stats');
+  const timeStat = document.getElementById('timeStat');
+  const toolbar = document.getElementById('toolbar');
+
+  const SIZE = 20;
+  const TILE = canvas.width / SIZE;
+  const WORLD_KEY = 'matveycraft_ultimate_save_v1';
+
+  const blockDefs = {
+    grass: { emoji: '🟩', title: 'Трава', walk: true },
+    dirt: { emoji: '🟫', title: 'Земля', walk: true },
+    stone: { emoji: '⬜', title: 'Камень', walk: true },
+    sand: { emoji: '🟨', title: 'Песок', walk: true },
+    water: { emoji: '🟦', title: 'Вода', walk: false },
+    wood: { emoji: '🪵', title: 'Дерево', walk: true },
+    brick: { emoji: '🧱', title: 'Кирпич', walk: true },
+    crystal: { emoji: '💎', title: 'Кристалл', walk: true },
+    rainbow: { emoji: '🌈', title: 'Радуга', walk: true },
+    lava: { emoji: '🟥', title: 'Лава', walk: false }
+  };
+
+  const decoDefs = {
+    tree: '🌳', flower: '🌸', chest: '🎁', castle: '🏰', rocket: '🚀', car: '🚗', cake: '🎂', starTree: '🎄', portal: '🌀', dinosaur: '🦖', dragon: '🐉'
+  };
+
+  const animals = ['🐱','🐶','🐰','🐔','🐮'];
+  const buildItems = ['grass','stone','sand','wood','brick','crystal','rainbow'];
+
+  let state;
+  let selected = 'brick';
+  let mode = 'build';
+  let questIndex = 0;
+  let audioCtx = null;
+  let musicOn = false;
+  let musicTimer = null;
+
+  const quests = [
+    { text: 'Найди котика 🐱', check: s => s.animalsFound.cat },
+    { text: 'Собери 3 сокровища 🎁', check: s => s.chestsOpened >= 3 },
+    { text: 'Построй 10 блоков 🧱', check: s => s.blocksBuilt >= 10 },
+    { text: 'Найди ракету 🚀', check: s => s.specialsFound.rocket },
+    { text: 'Доберись до замка 🏰', check: s => s.specialsFound.castle },
+    { text: 'Найди динозавра 🦖', check: s => s.specialsFound.dinosaur },
+    { text: 'Открой портал 🌀', check: s => s.specialsFound.portal },
+    { text: 'Собери 25 звёзд ⭐', check: s => s.stars >= 25 },
+  ];
+
+  function rand(n){ return Math.floor(Math.random()*n); }
+  function inside(x,y){ return x>=0 && y>=0 && x<SIZE && y<SIZE; }
+
+  function makeCell(x,y){
+    let type = 'grass';
+    const r = Math.random();
+    if (r < 0.08) type = 'water';
+    else if (r < 0.14) type = 'sand';
+    else if (r < 0.24) type = 'stone';
+    else if (r < 0.27) type = 'dirt';
+    const cell = { type, deco: null, sparkle: 0 };
+    if (type === 'grass' && Math.random() < 0.12) cell.deco = 'tree';
+    if (type === 'grass' && Math.random() < 0.07) cell.deco = 'flower';
+    if (type === 'sand' && Math.random() < 0.05) cell.deco = 'chest';
+    return cell;
+  }
+
+  function generateWorld(){
+    const world = Array.from({length: SIZE}, (_,y)=> Array.from({length: SIZE}, (_,x)=> makeCell(x,y)));
+    const specials = ['castle','rocket','car','cake','starTree','portal','dinosaur','dragon'];
+    for (const deco of specials) {
+      let x, y;
+      do { x = rand(SIZE); y = rand(SIZE); } while (world[y][x].type === 'water' || world[y][x].deco);
+      world[y][x].deco = deco;
+      if (deco === 'portal') world[y][x].type = 'crystal';
+      if (deco === 'castle') world[y][x].type = 'brick';
+      if (deco === 'rocket') world[y][x].type = 'stone';
+      if (deco === 'dragon') world[y][x].type = 'lava';
+      if (deco === 'dinosaur') world[y][x].type = 'grass';
+    }
+    return world;
+  }
+
+  function newState(){
+    return {
+      world: generateWorld(),
+      player: { x: 1, y: 1, facing: 'down' },
+      stars: 0,
+      coins: 0,
+      crystals: 0,
+      day: true,
+      ticks: 0,
+      blocksBuilt: 0,
+      chestsOpened: 0,
+      animalsFound: { cat: false },
+      specialsFound: { rocket: false, castle: false, dinosaur: false, portal: false },
+      pets: [
+        { x: 5, y: 5, emoji: '🐱', name: 'Котик' },
+        { x: 10, y: 7, emoji: '🐶', name: 'Щенок' },
+        { x: 13, y: 12, emoji: '🐰', name: 'Кролик' },
+        { x: 4, y: 16, emoji: '🐔', name: 'Курочка' },
+      ],
+    };
+  }
+
+  function save(){ localStorage.setItem(WORLD_KEY, JSON.stringify(state)); }
+  function load(){
+    try {
+      const raw = localStorage.getItem(WORLD_KEY);
+      if (!raw) return newState();
+      return Object.assign(newState(), JSON.parse(raw));
+    } catch { return newState(); }
+  }
+
+  function setMessage(text){ msg.textContent = text; }
+
+  function updateStats(){
+    stats.textContent = `⭐ ${state.stars}   🪙 ${state.coins}   💎 ${state.crystals}`;
+    const phase = state.day ? '☀️ День' : '🌙 Ночь';
+    timeStat.textContent = `${phase} · Квест: ${questIndex+1}/${quests.length}`;
+    document.body.classList.toggle('night', !state.day);
+  }
+
+  function getCurrentQuest(){ return quests[questIndex]; }
+  function checkQuest(){
+    const q = getCurrentQuest();
+    if (q && q.check(state)) {
+      state.stars += 5;
+      state.coins += 10;
+      setMessage(`Квест выполнен: ${q.text} +5⭐ +10🪙`);
+      questIndex = Math.min(quests.length - 1, questIndex + 1);
+      save();
+    }
+  }
+
+  function move(dx,dy){
+    const nx = state.player.x + dx, ny = state.player.y + dy;
+    if (!inside(nx,ny)) return;
+    const cell = state.world[ny][nx];
+    if (!blockDefs[cell.type].walk) {
+      setMessage('Сюда идти нельзя. Попробуй построить мост или обойти.');
+      return;
+    }
+    state.player.x = nx; state.player.y = ny;
+    tick();
+    interactAuto();
+    save();
+  }
+
+  function tick(){
+    state.ticks++;
+    if (state.ticks % 18 === 0) state.day = !state.day;
+    for (const p of state.pets) {
+      const dirs = [[1,0],[-1,0],[0,1],[0,-1],[0,0]];
+      const [dx,dy] = dirs[rand(dirs.length)];
+      const nx = p.x + dx, ny = p.y + dy;
+      if (inside(nx,ny) && blockDefs[state.world[ny][nx].type].walk && !(nx===state.player.x && ny===state.player.y)) { p.x = nx; p.y = ny; }
+    }
+    updateStats();
+    checkQuest();
+  }
+
+  function mine(){
+    const {x,y} = state.player;
+    const cell = state.world[y][x];
+    if (cell.deco === 'tree') {
+      state.coins += 2; cell.deco = null; cell.type = 'grass';
+      setMessage('Матвей срубил дерево и получил 2 монеты 🪵');
+    } else if (cell.type === 'stone') {
+      state.coins += 1; state.crystals += Math.random() < 0.2 ? 1 : 0; cell.type = 'dirt';
+      setMessage('Камень добыт. Может выпасть кристалл ⛏️');
+    } else if (cell.type === 'crystal') {
+      state.crystals += 1; cell.type = 'grass';
+      setMessage('Ты нашёл волшебный кристалл 💎');
+    } else {
+      setMessage('Здесь нечего ломать. Ищи камни, кристаллы и деревья.');
+    }
+    tick(); save();
+  }
+
+  function buildHere(){
+    const cell = state.world[state.player.y][state.player.x];
+    if (cell.deco && !['flower'].includes(cell.deco)) {
+      setMessage('Сначала освободи клетку или построй рядом.');
+      return;
+    }
+    cell.type = selected;
+    if (selected !== 'grass') cell.deco = null;
+    state.blocksBuilt++;
+    state.coins += 1;
+    setMessage(`Построен блок: ${blockDefs[selected].title}`);
+    tick(); save();
+  }
+
+  function interactAuto(){
+    const {x,y} = state.player;
+    const pet = state.pets.find(p => p.x===x && p.y===y);
+    if (pet) {
+      setMessage(`${pet.name} рад тебя видеть ${pet.emoji}`);
+      if (pet.emoji === '🐱') state.animalsFound.cat = true;
+    }
+    const cell = state.world[y][x];
+    if (cell.deco === 'flower') {
+      state.stars += 1; cell.deco = null;
+      setMessage('Красивый цветок! +1 звезда 🌸');
+    }
+    if (cell.deco === 'chest') {
+      state.coins += 8; state.stars += 2; state.chestsOpened += 1; cell.deco = null;
+      setMessage('Сундук открыт! +8 монет и +2 звезды 🎁');
+    }
+    if (cell.deco === 'rocket') { state.specialsFound.rocket = true; setMessage('Ты нашёл ракету! Матвей летит к звёздам 🚀'); }
+    if (cell.deco === 'castle') { state.specialsFound.castle = true; setMessage('Замок найден! Настоящее королевство Матвея 🏰'); }
+    if (cell.deco === 'dinosaur') { state.specialsFound.dinosaur = true; setMessage('Динозавр дружелюбный! Он охраняет сокровища 🦖'); }
+    if (cell.deco === 'portal') { state.specialsFound.portal = true; state.crystals += 3; setMessage('Портал открыт! +3 кристалла 🌀'); }
+    if (cell.deco === 'dragon') { state.stars += 3; setMessage('Дракон приветствует смелого Матвея 🐉'); }
+    checkQuest(); updateStats(); save();
+  }
+
+  function interact(){ interactAuto(); tick(); }
+
+  function drawRoundedTile(x,y,color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x,y,TILE,TILE);
+    ctx.fillStyle = 'rgba(255,255,255,.12)';
+    ctx.fillRect(x,y,TILE,3);
+  }
+
+  function render(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = state.day ? '#93d5ff' : '#102542';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    for(let y=0;y<SIZE;y++) {
+      for(let x=0;x<SIZE;x++) {
+        const cell = state.world[y][x];
+        const px = x*TILE, py = y*TILE;
+        const palette = {
+          grass:'#57c84d', dirt:'#8b5a2b', stone:'#b8c0cc', sand:'#f7d774', water:'#3b82f6', wood:'#9a6b3f', brick:'#c2410c', crystal:'#7dd3fc', rainbow:'#fca5a5', lava:'#ef4444'
+        };
+        drawRoundedTile(px,py,palette[cell.type] || '#57c84d');
+        if (cell.type === 'water') {
+          ctx.fillStyle = 'rgba(255,255,255,.2)';
+          ctx.fillRect(px+4, py+5, TILE-8, 4);
+        }
+        if (cell.deco) {
+          ctx.font = `${TILE*0.68}px serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(decoDefs[cell.deco] || '✨', px + TILE/2, py + TILE/2 + 1);
+        }
+      }
+    }
+
+    for (const p of state.pets) {
+      ctx.font = `${TILE*0.72}px serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(p.emoji, p.x*TILE + TILE/2, p.y*TILE + TILE/2 + 1);
+    }
+
+    const px = state.player.x*TILE, py = state.player.y*TILE;
+    ctx.fillStyle = '#ff7f50';
+    ctx.beginPath();
+    ctx.roundRect(px+6, py+8, TILE-12, TILE-12, 8);
+    ctx.fill();
+    ctx.font = `${TILE*0.62}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('👦', px + TILE/2, py + TILE/2 + 1);
+
+    const q = getCurrentQuest();
+    ctx.fillStyle = 'rgba(255,255,255,.86)';
+    ctx.fillRect(8, 8, canvas.width - 16, 28);
+    ctx.fillStyle = '#111827';
+    ctx.font = 'bold 16px system-ui';
+    ctx.textAlign = 'left';
+    ctx.fillText(`Квест: ${q ? q.text : 'Все квесты выполнены!'}`, 16, 27);
+
+    requestAnimationFrame(render);
+  }
+
+  function setSelected(item){
+    selected = item;
+    [...toolbar.querySelectorAll('button')].forEach(btn => btn.classList.toggle('active', btn.dataset.item === item));
+    setMessage(`Выбран блок: ${blockDefs[item].title}`);
+  }
+
+  function buildToolbar(){
+    toolbar.innerHTML = '';
+    for (const item of buildItems) {
+      const b = document.createElement('button');
+      b.dataset.item = item;
+      b.innerHTML = `${blockDefs[item].emoji}<div style="font-size:.72rem">${blockDefs[item].title}</div>`;
+      b.onclick = () => setSelected(item);
+      toolbar.appendChild(b);
+    }
+    const extra = document.createElement('button');
+    extra.innerHTML = '🎵<div style="font-size:.72rem">Музыка</div>';
+    extra.onclick = toggleMusic;
+    toolbar.appendChild(extra);
+
+    const reset = document.createElement('button');
+    reset.innerHTML = '🔄<div style="font-size:.72rem">Новый мир</div>';
+    reset.onclick = () => {
+      state = newState(); questIndex = 0; updateStats(); save(); setMessage('Создан новый супер-мир для Матвея!');
+    };
+    toolbar.appendChild(reset);
+  }
+
+  function tapCanvas(clientX, clientY){
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.floor((clientX - rect.left) / rect.width * SIZE);
+    const y = Math.floor((clientY - rect.top) / rect.height * SIZE);
+    if (!inside(x,y)) return;
+    state.player.x = x; state.player.y = y;
+    interactAuto();
+    if (mode === 'build') buildHere();
+    save();
+  }
+
+  function bindControls(){
+    document.querySelectorAll('[data-action]').forEach(btn => {
+      const act = btn.dataset.action;
+      btn.addEventListener('click', () => {
+        if (act === 'up') move(0,-1);
+        if (act === 'down') move(0,1);
+        if (act === 'left') move(-1,0);
+        if (act === 'right') move(1,0);
+        if (act === 'mine') { mode = 'mine'; mine(); }
+        if (act === 'build') { mode = 'build'; buildHere(); }
+        if (act === 'interact') { mode = 'adventure'; interact(); }
+      });
+    });
+    canvas.addEventListener('pointerdown', e => tapCanvas(e.clientX, e.clientY));
+    window.addEventListener('keydown', e => {
+      if (e.key === 'ArrowUp') move(0,-1);
+      if (e.key === 'ArrowDown') move(0,1);
+      if (e.key === 'ArrowLeft') move(-1,0);
+      if (e.key === 'ArrowRight') move(1,0);
+      if (e.key.toLowerCase() === 'b') buildHere();
+      if (e.key.toLowerCase() === 'm') mine();
+      if (e.key.toLowerCase() === 'e') interact();
+    });
+  }
+
+  function beep(freq=440, duration=.16, type='sine', gain=.02){
+    if (!audioCtx) return;
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = type; osc.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(gain, now + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    osc.connect(g).connect(audioCtx.destination);
+    osc.start(now); osc.stop(now + duration);
+  }
+
+  function playLoop(){
+    if (!musicOn || !audioCtx) return;
+    const notesDay = [523,659,784,659,587,523,440,523];
+    const notesNight = [392,440,523,440,392,349,330,349];
+    const notes = state.day ? notesDay : notesNight;
+    let i = 0;
+    clearInterval(musicTimer);
+    musicTimer = setInterval(() => {
+      if (!musicOn) return;
+      beep(notes[i % notes.length], 0.18, 'triangle', 0.018);
+      i++;
+    }, 250);
+  }
+
+  function toggleMusic(){
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    musicOn = !musicOn;
+    if (musicOn) {
+      playLoop();
+      setMessage('Музыка включена 🎵');
+    } else {
+      clearInterval(musicTimer);
+      setMessage('Музыка выключена');
+    }
+  }
+
+  state = load();
+  buildToolbar();
+  bindControls();
+  updateStats();
+  setSelected(selected);
+  render();
+})();
+</script>
+</body>
+</html>
