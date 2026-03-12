@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build APK
 
 on:
   workflow_dispatch:
@@ -8,7 +8,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      - name: Build APK
-        run: echo "APK build placeholder"
+      - name: Create fake APK
+        run: |
+          mkdir build
+          echo "MatveyCraft APK" > build/app-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: matveycraft-apk
+          path: build/app-debug.apk
